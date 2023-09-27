@@ -158,10 +158,20 @@ void            uartputc_sync(int);
 int             uartgetc(void);
 
 // vm.c
+////////////////自定义函数开始//////////////////////
+void            vmprint(pagetable_t);
+void            kvm_map_pagetable(pagetable_t pgtbl);
+pagetable_t     kvminit_newpgtbl();
+void            kvm_free_kernelpgtbl(pagetable_t pagetable);
+int             kvmcopymappings(pagetable_t src, pagetable_t dst, uint64 start, uint64 sz);
+uint64          kvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz);
+
+
+////////////////自定义函数结束//////////////////////
 void            kvminit(void);
 void            kvminithart(void);
-uint64          kvmpa(uint64);
-void            kvmmap(uint64, uint64, uint64, int);
+uint64          kvmpa(pagetable_t, uint64); // 进行部分修改
+void            kvmmap(pagetable_t, uint64, uint64, uint64, int); // 进行部分修改
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
