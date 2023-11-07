@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define MAX_SYMLINK_DEPTH 10
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -321,6 +323,36 @@ sys_open(void)
     end_op();
     return -1;
   }
+  
+  // 处理符号链接
+  if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+	  // 若符号链接所指向的仍然是符号连接，则递归的跟随他
+	  // 直到找到真正指向的文件
+	  // 但深度不能超过MAX_SYMLINK_DEPTH
+	  for(int i = 0; i < MAX_SYMLINK_DEPTH; ++i){
+		  // 从软链接的inode的[0, MAXPATH]读出它所对应的target path
+		  if(readi(ip, 0, (uint64)path, 0, MAXPATH) < 0){
+			  iunlockput(ip);
+			  end_op();
+			  return -1;
+		  }
+		  iunlockput(ip);
+		  ip = namei(path);
+		  if(ip == 0){	// target path 不存在
+			  end_op();
+			  return -1;
+		  }
+		  ilock(ip);
+		  if(ip->type != T_SYMLINK)
+			  break;
+	  }
+	  // 超过最大允许深度后仍然为符号链接，则返回错误
+	  if(ip->type == T_SYMLINK){
+		  iunlockput(ip);
+		  end_op();
+		  return -1;
+	  }
+  }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
@@ -483,4 +515,40 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64 sys_symlink(char * target, char * path){
+	char ktarget[MAXPATH], kpath[MAXPATH];
+	memset(kpath, 0, MAXPATH);
+    memset(ktarget, 0, MAXPATH);
+	struct inode* ip;
+
+	if(argstr(0, ktarget, MAXPATH) < 0 || argstr(1, kpath, MAXPATH) < 0){
+		return -1;
+	}
+
+	begin_op();
+
+	// 这个软链接已经存在了
+	if((ip = namei(kpath)) != 0){
+		// symlink already exists
+		end_op();
+		return -1;
+	}
+	// 分配一个inode结点，create返回锁定的inode
+	ip = create(kpath, T_SYMLINK, 0, 0);
+	if(ip == 0){
+		end_op();
+		return -1;
+	}
+	// 向inode数据块中写入target路径
+	if(writei(ip, 0, (uint64)ktarget, 0, MAXPATH) < 0){
+		iunlockput(ip);
+		end_op();
+		return -1;
+	}
+
+	iunlockput(ip);
+	end_op();
+	return 0;
 }
